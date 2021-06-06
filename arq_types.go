@@ -1,6 +1,8 @@
 package arq
 
 import (
+	"bytes"
+	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -151,4 +153,65 @@ type ArqNode struct {
 	CreateTime               time.Time `arq:"nsec"`
 	StBlocks                 int64
 	StBlkSize                uint32
+}
+
+type ArqPackIndex struct {
+	Header  [4]byte
+	Version uint32
+	Fanout  [256]uint32
+	Objects []ArqPackIndexObject
+	SHA1    [20]byte
+	// TODO(sholiday): Support Glacier metadata.
+}
+
+func (o *ArqPackIndex) UnmarshalArq(input io.Reader) error {
+	h := sha1.New()
+	r := io.TeeReader(input, h)
+
+	err := DecodeArq(r, &o.Header)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(o.Header[:], []byte{0xff, 0x74, 0x4f, 0x63}) {
+		return fmt.Errorf("magic bytes '% x' are incorrect for arqPackIndex", o.Header)
+	}
+	err = DecodeArq(r, &o.Version)
+	if err != nil {
+		return err
+	}
+	err = DecodeArq(r, &o.Fanout)
+	if err != nil {
+		return err
+	}
+	numObjects := int(o.Fanout[255])
+	o.Objects = make([]ArqPackIndexObject, numObjects)
+	for i := range o.Objects {
+		err = DecodeArq(r, &o.Objects[i])
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(o.Objects[i].Alignment[:], []byte{0, 0, 0, 0}) {
+			return fmt.Errorf("invalid alignment for arqPackIndexObject")
+		}
+	}
+	calculated := h.Sum(nil)
+	err = DecodeArq(r, &o.SHA1)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(calculated, o.SHA1[:]) {
+		return fmt.Errorf("arqPackIndex checksum '%x' doesn't match calculated '%x'", o.SHA1[:], calculated)
+	}
+	return nil
+}
+
+type ArqPackIndexObject struct {
+	Offset    uint64
+	Length    uint64
+	SHA1      [20]byte
+	Alignment [4]byte
+}
+
+func (o ArqPackIndexObject) String() string {
+	return fmt.Sprintf("arqPackIndexObject[%x, off=%d, len=%d]", o.SHA1, o.Offset, o.Length)
 }
