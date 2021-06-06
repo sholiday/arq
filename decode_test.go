@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/sholiday/arq"
 	"github.com/stretchr/testify/assert"
@@ -231,9 +232,79 @@ func (ts *testUnmarshalable) UnmarshalArq(r io.Reader) error {
 }
 
 func TestDecodeArqUnmarshaler(t *testing.T) {
-	expected := testUnmarshalable{"arq!"}
-	buf := new(bytes.Buffer)
-	var actual testUnmarshalable
-	assert.Nil(t, arq.DecodeArq(buf, &actual))
-	assert.Equal(t, expected, actual)
+	t.Run("Direct", func(t *testing.T) {
+		expected := testUnmarshalable{"arq!"}
+		buf := new(bytes.Buffer)
+		var actual testUnmarshalable
+		assert.Nil(t, arq.DecodeArq(buf, &actual))
+		assert.Equal(t, expected, actual)
+	})
+	t.Run("StructMember", func(t *testing.T) {
+		type testStruct struct {
+			Um testUnmarshalable
+		}
+		expected := testStruct{testUnmarshalable{"arq!"}}
+		buf := new(bytes.Buffer)
+		var actual testStruct
+		assert.Nil(t, arq.DecodeArq(buf, &actual))
+		assert.Equal(t, expected, actual)
+	})
+	// TODO(sholiday): Make this test pass.
+	// Roughly I think we don't handle ptrs as members.
+	//
+	// t.Run("StructMemberPtr", func(t *testing.T) {
+	//   type testStruct struct {
+	//     Um *testUnmarshalable
+	//   }
+	//   expected := testStruct{&testUnmarshalable{"arq!"}}
+	//   buf := new(bytes.Buffer)
+	//   var actual testStruct
+	//   assert.Nil(t, arq.DecodeArq(buf, &actual))
+	//   assert.Equal(t, expected, actual)
+	// })
+}
+
+func TestDecodeTime(t *testing.T) {
+	t.Run("IsNull", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		assert.Nil(t, binary.Write(buf, binary.BigEndian, uint8(0)))
+
+		var actual time.Time
+		assert.True(t, actual.IsZero())
+	})
+	t.Run("IsNotNull", func(t *testing.T) {
+		expected := time.Now()
+		nanos := expected.UnixNano()
+
+		buf := new(bytes.Buffer)
+		assert.Nil(t, binary.Write(buf, binary.BigEndian, uint8(1)))
+		assert.Nil(t, binary.Write(buf, binary.BigEndian, nanos/int64(time.Millisecond)))
+
+		var actual time.Time
+		assert.Nil(t, arq.DecodeArq(buf, &actual))
+		expectedMs := expected.UnixNano() / int64(time.Millisecond)
+		actualMs := actual.UnixNano() / int64(time.Millisecond)
+		assert.Equal(t, expectedMs, actualMs)
+	})
+	t.Run("Nsec", func(t *testing.T) {
+		expected := time.Now()
+		nanos := expected.UnixNano()
+		sec := nanos / 1e9
+		ns := nanos - sec*1e9
+		assert.Equal(t, expected.Unix(), sec)
+
+		buf := new(bytes.Buffer)
+		assert.Nil(t, binary.Write(buf, binary.BigEndian, expected.Unix()))
+		assert.Nil(t, binary.Write(buf, binary.BigEndian, ns))
+
+		type testStruct struct {
+			T time.Time `arq:"nsec"`
+		}
+
+		var actual testStruct
+		assert.Nil(t, arq.DecodeArq(buf, &actual))
+		expectedMs := expected.UnixNano() / int64(time.Millisecond)
+		actualMs := actual.T.UnixNano() / int64(time.Millisecond)
+		assert.Equal(t, expectedMs, actualMs)
+	})
 }

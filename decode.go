@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"time"
 )
 
 var (
 	ErrUnimplemented      = errors.New("Unimplemented")
 	ErrUnknownSliceLength = errors.New("ErrUnknownSliceLength")
 	ErrTooLong            = errors.New("value contains too many elements")
+	ErrInvalidNotNull     = errors.New("ErrInvalidNotNull")
 )
 
 type ArqUnmarshaler interface {
@@ -101,9 +103,19 @@ func decodeArqValue(r io.Reader, v reflect.Value, tag string) error {
 	case reflect.String:
 		return decodeString(r, v)
 	case reflect.Struct:
-		return decodeStruct(r, v, tag)
+		if u := indirect(v); u != nil {
+			return u.UnmarshalArq(r)
+		}
+		switch v.Interface().(type) {
+		case time.Time:
+			return decodeTime(r, v, tag)
+		default:
+			return decodeStruct(r, v, tag)
+		}
 	case reflect.Slice:
 		return decodeSlice(r, v, tag)
+	case reflect.Ptr:
+		return fmt.Errorf("decoding pointers %w", ErrUnimplemented)
 	}
 	return fmt.Errorf("decoding '%s' %w", v.Type().String(), ErrUnimplemented)
 }
@@ -122,6 +134,9 @@ func decodeString(r io.Reader, v reflect.Value) error {
 	notNull := byte(0)
 	if err := binary.Read(r, binary.BigEndian, &notNull); err != nil {
 		return err
+	}
+	if notNull > 1 {
+		return ErrInvalidNotNull
 	}
 	if notNull != 1 {
 		return nil
@@ -192,6 +207,50 @@ func decodeSlice(r io.Reader, v reflect.Value, tag string) error {
 			return err
 		}
 		v.Set(reflect.Append(v, elem))
+	}
+	return nil
+}
+
+func decodeTime(r io.Reader, v reflect.Value, tag string) error {
+	if tag == "nsec" {
+		var sec int64
+		var nsec int64
+		if err := binary.Read(r, binary.BigEndian, &sec); err != nil {
+			return err
+		}
+		if err := binary.Read(r, binary.BigEndian, &nsec); err != nil {
+			return err
+		}
+		t := time.Unix(sec, nsec)
+		v.Set(reflect.ValueOf(t))
+		return nil
+	}
+	var isNotNull uint8
+	if err := binary.Read(r, binary.BigEndian, &isNotNull); err != nil {
+		return err
+	}
+	if isNotNull != 1 {
+		v.Set(reflect.Zero(v.Type()))
+		return nil
+	}
+	var millis int64
+	if err := binary.Read(r, binary.BigEndian, &millis); err != nil {
+		return err
+	}
+	tm := time.Unix(0, millis*int64(time.Millisecond))
+	v.Set(reflect.ValueOf(tm))
+	return nil
+}
+
+// Inspired by this golang JSON decoder: https://github.com/golang/go/blob/2ebe77a2fda1ee9ff6fd9a3e08933ad1ebaea039/src/encoding/json/decode.go#L420-L425
+func indirect(v reflect.Value) ArqUnmarshaler {
+	if v.Kind() != reflect.Ptr && v.Type().Name() != "" && v.CanAddr() {
+		v = v.Addr()
+	}
+	if v.Type().NumMethod() > 0 && v.CanInterface() {
+		if u, ok := v.Interface().(ArqUnmarshaler); ok {
+			return u
+		}
 	}
 	return nil
 }
