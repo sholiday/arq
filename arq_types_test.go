@@ -94,3 +94,28 @@ func TestDecodePackIndex(t *testing.T) {
 		assert.Equal(t, 372, int(o.Length))
 	}
 }
+
+func TestDecodePack(t *testing.T) {
+	by, err := ioutil.ReadFile("testdata/types/1.pack")
+	assert.Nil(t, err)
+
+	r := bytes.NewReader(by)
+
+	p := arq.ArqPack{}
+	err = arq.DecodeArq(r, &p)
+	if !assert.Nil(t, err, p) {
+		return
+	}
+
+	assert.Equal(t, []byte("PACK"), p.Magic[:])
+	assert.Equal(t, 2, int(p.Version))
+	assert.Equal(t, p.ObjectCount, uint64(2))
+	assert.Equal(t, int(p.ObjectCount), len(p.Objects))
+
+	assert.Equal(t, 1316, len(p.Objects[0].Data))
+	assert.Equal(t, "", p.Objects[0].Mimetype)
+	assert.Equal(t, "", p.Objects[0].Name)
+	assert.Equal(t, 372, len(p.Objects[1].Data))
+	assert.Equal(t, "", p.Objects[1].Mimetype)
+	assert.Equal(t, "", p.Objects[1].Name)
+}
