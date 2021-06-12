@@ -1,6 +1,8 @@
 package arq
 
 import (
+	"bytes"
+	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -151,4 +153,117 @@ type ArqNode struct {
 	CreateTime               time.Time `arq:"nsec"`
 	StBlocks                 int64
 	StBlkSize                uint32
+}
+
+type ArqPackIndex struct {
+	Header  [4]byte
+	Version uint32
+	Fanout  [256]uint32
+	Objects []ArqPackIndexObject
+	SHA1    [20]byte
+	// TODO(sholiday): Support Glacier metadata.
+}
+
+func (o *ArqPackIndex) UnmarshalArq(input io.Reader) error {
+	h := sha1.New()
+	r := io.TeeReader(input, h)
+
+	err := DecodeArq(r, &o.Header)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(o.Header[:], []byte{0xff, 0x74, 0x4f, 0x63}) {
+		return fmt.Errorf("magic bytes '% x' are incorrect for ArqPackIndex", o.Header)
+	}
+	err = DecodeArq(r, &o.Version)
+	if err != nil {
+		return err
+	}
+	err = DecodeArq(r, &o.Fanout)
+	if err != nil {
+		return err
+	}
+	numObjects := int(o.Fanout[255])
+	o.Objects = make([]ArqPackIndexObject, numObjects)
+	for i := range o.Objects {
+		err = DecodeArq(r, &o.Objects[i])
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(o.Objects[i].Alignment[:], []byte{0, 0, 0, 0}) {
+			return fmt.Errorf("invalid alignment for ArqPackIndexObject")
+		}
+	}
+	calculated := h.Sum(nil)
+	err = DecodeArq(r, &o.SHA1)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(calculated, o.SHA1[:]) {
+		return fmt.Errorf("ArqPackIndex checksum '%x' doesn't match calculated '%x'", o.SHA1[:], calculated)
+	}
+	return nil
+}
+
+type ArqPackIndexObject struct {
+	Offset    uint64
+	Length    uint64
+	SHA1      [20]byte
+	Alignment [4]byte
+}
+
+func (o ArqPackIndexObject) String() string {
+	return fmt.Sprintf("ArqPackIndexObject[%x, off=%d, len=%d]", o.SHA1, o.Offset, o.Length)
+}
+
+type ArqPack struct {
+	Magic       [4]byte
+	Version     uint32
+	ObjectCount uint64
+	Objects     []ArqPackObject
+	SHA1        [20]byte
+}
+
+func (p *ArqPack) UnmarshalArq(input io.Reader) error {
+	h := sha1.New()
+	r := io.TeeReader(input, h)
+
+	if err := DecodeArq(r, &p.Magic); err != nil {
+		return err
+	}
+	if !bytes.Equal(p.Magic[:], []byte("PACK")) {
+		return fmt.Errorf("magic bytes '% x' are incorrect for ArqPack", p.Magic)
+	}
+	if err := DecodeArq(r, &p.Version); err != nil {
+		return err
+	}
+	if p.Version != 2 {
+		return fmt.Errorf("invalid version '%d' for ArqPack", p.Version)
+	}
+	if err := DecodeArq(r, &p.ObjectCount); err != nil {
+		return err
+	}
+
+	p.Objects = make([]ArqPackObject, p.ObjectCount)
+	for i := range p.Objects {
+		err := DecodeArq(r, &p.Objects[i])
+		if err != nil {
+			return err
+		}
+	}
+	calculated := h.Sum(nil)
+	if err := DecodeArq(r, &p.SHA1); err != nil {
+		return err
+	}
+	if !bytes.Equal(calculated, p.SHA1[:]) {
+		return fmt.Errorf("ArqPack checksum '%x' doesn't match calculated '%x'", p.SHA1[:], calculated)
+	}
+
+	return nil
+}
+
+type ArqPackObject struct {
+	Mimetype string
+	Name     string
+	Data     []byte `arq:"len-uint64"`
 }

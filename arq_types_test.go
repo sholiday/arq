@@ -58,3 +58,64 @@ func TestDecodeTree(t *testing.T) {
 	bk := node.DataBlobKeys[0]
 	assert.Equal(t, "92a1aaa5506fafc27548eb324dc3b885fe0968ac", bk.Hash.String())
 }
+
+func TestDecodePackIndex(t *testing.T) {
+	by, err := ioutil.ReadFile("testdata/types/1.index")
+	assert.Nil(t, err)
+
+	r := bytes.NewReader(by)
+
+	pi := arq.ArqPackIndex{}
+	err = arq.DecodeArq(r, &pi)
+	if !assert.Nil(t, err, pi) {
+		return
+	}
+	assert.Equal(t, []byte{0xff, 0x74, 0x4f, 0x63}, pi.Header[:])
+	assert.Equal(t, 2, int(pi.Version))
+	assert.Equal(t, len(pi.Objects), int(pi.Fanout[255]), "number of objects decoded doesn't match the parsed fanout")
+	for i, obj := range pi.Objects {
+		assert.Equalf(t, []byte{0x00, 0x00, 0x00, 0x00}, obj.Alignment[:], "non zero alignment for object %d, %+v", i, obj)
+	}
+	if !assert.Equal(t, 2, len(pi.Objects)) {
+		return
+	}
+	{
+		o := pi.Objects[0]
+		d, _ := hex.DecodeString("0ed92a2ab71b2fe75a28fcd785e1c9ec51e040f2")
+		assert.Equal(t, d, o.SHA1[:])
+		assert.Equal(t, 16, int(o.Offset))
+		assert.Equal(t, 1316, int(o.Length))
+	}
+	{
+		o := pi.Objects[1]
+		d, _ := hex.DecodeString("5d2d2b62a1b11b2e5977c5ea65cb4708e5f41887")
+		assert.Equal(t, d, o.SHA1[:])
+		assert.Equal(t, 1342, int(o.Offset))
+		assert.Equal(t, 372, int(o.Length))
+	}
+}
+
+func TestDecodePack(t *testing.T) {
+	by, err := ioutil.ReadFile("testdata/types/1.pack")
+	assert.Nil(t, err)
+
+	r := bytes.NewReader(by)
+
+	p := arq.ArqPack{}
+	err = arq.DecodeArq(r, &p)
+	if !assert.Nil(t, err, p) {
+		return
+	}
+
+	assert.Equal(t, []byte("PACK"), p.Magic[:])
+	assert.Equal(t, 2, int(p.Version))
+	assert.Equal(t, p.ObjectCount, uint64(2))
+	assert.Equal(t, int(p.ObjectCount), len(p.Objects))
+
+	assert.Equal(t, 1316, len(p.Objects[0].Data))
+	assert.Equal(t, "", p.Objects[0].Mimetype)
+	assert.Equal(t, "", p.Objects[0].Name)
+	assert.Equal(t, 372, len(p.Objects[1].Data))
+	assert.Equal(t, "", p.Objects[1].Mimetype)
+	assert.Equal(t, "", p.Objects[1].Name)
+}
