@@ -63,6 +63,12 @@ func DecodeShaHash(in []byte) (ShaHash, error) {
 	return sh, err
 }
 
+func WrapShaHash(in *[20]byte) ShaHash {
+	var sh ShaHash
+	copy(sh.Contents[:], in[:])
+	return sh
+}
+
 func (sh *ShaHash) UnmarshalArq(input io.Reader) error {
 	var s string
 	if err := DecodeArq(input, &s); err != nil {
