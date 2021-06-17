@@ -10,25 +10,28 @@ import (
 	"howett.net/plist"
 )
 
+func unmarshalPlist(ctx context.Context, o fs.Object, out interface{}) error {
+	rc, err := o.Open(ctx)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	by, err := io.ReadAll(rc)
+	if err != nil {
+		return err
+	}
+	_, err = plist.Unmarshal(by, out)
+	return err
+}
+
 func parseComputerInfo(ctx context.Context, f fs.Fs, cPath string) (ComputerInfo, error) {
 	var info ComputerInfo
 	o, err := f.NewObject(ctx, path.Join(cPath, "computerinfo"))
 	if err != nil {
 		return info, err
 	}
-	rc, err := o.Open(ctx)
-	if err != nil {
-		return info, err
-	}
-	defer rc.Close()
-	by, err := io.ReadAll(rc)
-	if err != nil {
-		return info, err
-	}
-	if _, err := plist.Unmarshal(by, &info); err != nil {
-		return info, err
-	}
-	return info, nil
+	err = unmarshalPlist(ctx, o, &info)
+	return info, err
 }
 
 func ListComputers(ctx context.Context, f fs.Fs, base string) ([]Computer, error) {
@@ -89,6 +92,10 @@ func (c *Computer) Open(ctx context.Context, passphrase string) error {
 
 func (c *Computer) NewObject(ctx context.Context, p string) (fs.Object, error) {
 	return c.fs.NewObject(ctx, path.Join(c.base, p))
+}
+
+func (c *Computer) List(ctx context.Context, dir string) (fs.DirEntries, error) {
+	return c.fs.List(ctx, path.Join(c.base, dir))
 }
 
 func (c *Computer) unlock(ctx context.Context, passphrase string) error {

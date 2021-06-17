@@ -3,6 +3,7 @@ package arq_test
 import (
 	"context"
 	"log"
+	"sort"
 	"testing"
 
 	"github.com/rclone/rclone/backend/local"
@@ -36,9 +37,35 @@ func TestFolder(t *testing.T) {
 	}
 	f := folders[0].Folder()
 
-	master, err := f.FindMaster(ctx)
-	if !assert.Nil(t, err) {
-		return
-	}
-	assert.Equal(t, "917ba67b0748ebbf02f12cdf2b49f536e5ddb20e", master.String())
+	t.Run("FindMaster", func(t *testing.T) {
+		master, err := f.FindMaster(ctx)
+		if !assert.Nil(t, err) {
+			return
+		}
+		assert.Equal(t, "917ba67b0748ebbf02f12cdf2b49f536e5ddb20e", master.String())
+	})
+
+	t.Run("ListRefs", func(t *testing.T) {
+		refs, err := f.ListRefs(ctx)
+		if !assert.Nil(t, err) {
+			return
+		}
+		search := 644364918
+		i := sort.Search(len(refs), func(i int) bool { return refs[i].Name <= search })
+		if !assert.LessOrEqual(t, i, len(refs)) {
+			return
+		}
+		if !assert.Equal(t, search, refs[i].Name) {
+			return
+		}
+	})
+
+	t.Run("ReadRef", func(t *testing.T) {
+		re, err := f.RefEntry(ctx, 644364918)
+		if !assert.Nil(t, err) {
+			return
+		}
+		assert.Equal(t, "917ba67b0748ebbf02f12cdf2b49f536e5ddb20e", re.NewHeadSha1)
+		assert.Equal(t, "19cec4295c1d829dfb900007a0bebeb0b3727260", re.PackSha1)
+	})
 }
