@@ -1,0 +1,15 @@
+
+<plist version="1.0">
+    <dict>
+        <key>oldHeadStretchKey</key>
+        <false></false>
+        <key>newHeadSHA1</key>
+        <string>0ed92a2ab71b2fe75a28fcd785e1c9ec51e040f2</string>
+        <key>newHeadStretchKey</key>
+        <true></true>
+        <key>isRewrite</key>
+        <false></false>
+        <key>packSHA1</key>
+        <string>2b42fa6b643f51596d30561647f93457381fa6c1</string>
+    </dict>
+</plist>
